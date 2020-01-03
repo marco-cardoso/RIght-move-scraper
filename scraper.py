@@ -67,7 +67,7 @@ def save_properties_informations(paths : list):
 
         soup = BeautifulSoup(response.text)
 
-        # Attributes
+        ##### Attributes ####
 
         # Header attributes
         property_rent_and_price_div = soup.find("div", {"class" : "property-header-bedroom-and-price"})
@@ -80,17 +80,20 @@ def save_properties_informations(paths : list):
         letting_div = soup.find("div", { "id" : "lettingInformation" })
         letting_table_rows = letting_div.find_next("tbody").find_all_next("tr")
 
-        # TODO optional attributes, meaning they can assume null values. Fix it !
-        date_available = letting_table_rows[0].findChildren("td")[1].text
-        furnishing = letting_table_rows[1].findChildren("td")[1].text
-        letting_type = letting_table_rows[2].findChildren("td")[1].text
-        rightmove_reduced = letting_table_rows[3].findChildren("td")[1].text
+        date_available =  letting_table_rows[0].findChildren("td")[1].text if letting_table_rows[0] != None else None
+        furnishing = letting_table_rows[1].findChildren("td")[1].text if letting_table_rows[1] != None else None
+        letting_type = letting_table_rows[2].findChildren("td")[1].text if letting_table_rows[2] != None else None
+        rightmove_reduced = letting_table_rows[3].findChildren("td")[1].text if letting_table_rows[3] != None else None
 
+        # Agent content attributes
+        agent_content_div = soup.find("div", {"class" : "agent-content"})
 
-        # TODO Key features= list
-        # TODO full description = string
-        # TODO latitude
-        # TODO longitude
+        key_features_list = agent_content_div.findChildren("ul")[0].findChildren("li")
+        description = agent_content_div.find_next("p", {"itemprop" : "description"}).text
+
+        location_image_url = soup.find("a", {"class" : "js-ga-minimap"}).findChildren("img")[0].attrs['src']
+        latitude = None
+        longitude = None
 
     return None
 
