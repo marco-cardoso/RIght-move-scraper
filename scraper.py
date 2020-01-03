@@ -49,6 +49,14 @@ def get_properties_urls() -> list:
 
     return links
 
+def clean_string(text : str) -> str:
+    """
+    It removes special characters from the string. Such as : \t \n \r etc...
+    :param text:
+    :return: The formatted text
+    """
+    return ' '.join(text.split())
+
 def save_properties_informations(paths : list):
 
     for path in tqdm(paths):
@@ -61,27 +69,26 @@ def save_properties_informations(paths : list):
 
         # Attributes
 
-        # TODO title string
-        # TODO address string
+        # Header attributes
+        property_rent_and_price_div = soup.find("div", {"class" : "property-header-bedroom-and-price"})
 
-        price = soup.find("p", {"id" : "propertyHeaderPrice"}).findChildren("strong")[0].text
+        title = clean_string(property_rent_and_price_div.findChildren("h1")[0].text)
+        address = clean_string(property_rent_and_price_div.findChildren("address")[0].text)
+        price = clean_string(soup.find("p", {"id" : "propertyHeaderPrice"}).findChildren("strong")[0].text)
 
-        # TODO apply regex to the price string in order to remove special characters
-
-
-        # Letting information
+        # Letting section attributes
         letting_div = soup.find("div", { "id" : "lettingInformation" })
         letting_table_rows = letting_div.find_next("tbody").find_all_next("tr")
 
+        # TODO optional attributes, meaning they can assume null values. Fix it !
         date_available = letting_table_rows[0].findChildren("td")[1].text
         furnishing = letting_table_rows[1].findChildren("td")[1].text
         letting_type = letting_table_rows[2].findChildren("td")[1].text
         rightmove_reduced = letting_table_rows[3].findChildren("td")[1].text
 
+
         # TODO Key features= list
-
         # TODO full description = string
-
         # TODO latitude
         # TODO longitude
 
