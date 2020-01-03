@@ -1,3 +1,5 @@
+from database import Database
+
 import re
 import time
 from datetime import datetime
@@ -59,13 +61,44 @@ def get_properties_urls() -> list:
     return links
 
 
+def get_html_value(element, index) -> str:
+    """
+    It gets the value from the TD for the given TR
+    :param element: The Beautiful Soup object with the TR
+    :param index: The column index of the element, 0 = title, 1 = value.
+    :return: A string with the letting information
+    """
+    try:
+        return clean_string(element.findChildren("td")[index].text)
+    except IndexError:
+        return None
+
+
+def convert_station_distance(element):
+    """
+    The string distance has the format ( %f.%f mi ), in order to extract it
+    this method is applying the regex method 'findall' and then casting to
+    float value
+    :param element: The Beautiful Soup object with the small
+    :return: A float value with the distance in mi
+    """
+    float(
+        re.findall(
+            "(([-0-9_\.]+)\w+)",
+            clean_string(element)
+        )[0][0]
+    )
+
+
 def save_properties_informations(paths: list):
+    database = Database()
+
     for path in tqdm(paths):
         url = "https://www.rightmove.co.uk" + path
 
         response = requests.get(url)
 
-        soup = BeautifulSoup(response.text)
+        soup = BeautifulSoup(response.text, features="html.parser")
 
         ##### Attributes ####
 
@@ -80,15 +113,13 @@ def save_properties_informations(paths: list):
         letting_div = soup.find("div", {"id": "lettingInformation"})
         letting_table_rows = letting_div.find_next("tbody").find_all_next("tr")
 
-        date_available = letting_table_rows[0].findChildren("td")[1].text if letting_table_rows[0] != None else None
-        furnishing = letting_table_rows[1].findChildren("td")[1].text if letting_table_rows[1] != None else None
-        letting_type = letting_table_rows[2].findChildren("td")[1].text if letting_table_rows[2] != None else None
-        rightmove_reduced = letting_table_rows[3].findChildren("td")[1].text if letting_table_rows[3] != None else None
+        letting_info = {get_html_value(row, 0): get_html_value(row, 1) for row in letting_table_rows}
 
         # Agent content attributes
         agent_content_div = soup.find("div", {"class": "agent-content"})
 
         key_features_list = agent_content_div.findChildren("ul")[0].findChildren("li")
+        key_features = [key_feature.text for key_feature in key_features_list]
         description = agent_content_div.find_next("p", {"itemprop": "description"}).text
 
         # Coordinates
@@ -96,8 +127,31 @@ def save_properties_informations(paths: list):
         latitude = re.findall("latitude=([-0-9_\.]+)\w+", location_image_url)[0]
         longitude = re.findall("longitude=([-0-9_\.]+)\w+", location_image_url)[0]
 
-    return None
+        stations_li = soup.find("ul", {"class": "stations-list"}).findChildren("li")
+        stations = [
+            {
+                'name': clean_string(station_li.findChildren("span")[0].text),
+                'distance': convert_station_distance(station_li.findChildren("small")[0].text)
+            }
+            for station_li in stations_li
+        ]
 
+        document = {
+            'title': title,
+            'address': address,
+            'price': price,
+            'letting': letting_info,
+            'key_features': key_features,
+            'description': description,
+            'latitude': latitude,
+            'longitude': longitude,
+            'stations': stations,
+            "amt_stations" : len(stations)
+        }
+
+        database.insert_property(document)
+
+        time.sleep(0.5)
 
 def scrap():
     print("Getting the urls...")
