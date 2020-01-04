@@ -1,23 +1,15 @@
-from database import Database
-
 import re
 import time
 from datetime import datetime
+import itertools
 
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
+from database import Database
 
-def save_urls(links: list):
-    now = datetime.now().strftime("%Y_%M_%d_%h:%m:%s")
-    filename = "properties_url_" + now + ".txt"
-
-    print("Saving the URLs at " + filename)
-
-    with open(filename, "w") as file:
-        [file.write(link + "\n") for link in links]
-
+database = Database()
 
 def clean_string(text: str) -> str:
     """
@@ -29,36 +21,65 @@ def clean_string(text: str) -> str:
 
 
 def get_properties_urls() -> list:
-    links = []
+    """
+    Since there's no way to get the attributes of the properties directly trough a JSON document,
+    It's necessary to iterate over the main pages and save all of the HTML anchor hrefs to
+    process then later
+    :return: A list with all the obtained properties urls
+    """
+
+    # For security reasons, after each main page iteration the results are saved in DB.
+    # If something happens this instruction is going to get the last processed index.
+    last_processed_element = database.get_last_processed_index()
+
+    initial_index = last_processed_element[0]['index'] + 24 if len(last_processed_element) > 0 else 0
+
+    # The website has setted this value as default
+    frequency = 24
+
+    # Iterating though the main pages
     # 985
+    for index in tqdm(range(initial_index, 25, frequency)):
 
-    for index in tqdm(range(0, 48, 24)):
-        url = "https://www.rightmove.co.uk/property-to-rent/find.html?" \
-              "locationIdentifier=REGION%5E87490&" \
-              f"index={index}&" \
-              "propertyTypes=&" \
-              "includeLetAgreed=true&" \
-              "mustHave=&" \
-              "dontShow=&" \
-              "furnishTypes=&" \
-              "keywords="
+        # It prevents the script to raise the TimeoutError exception from the lack
+        # of internet connection
+        while True:
+            try:
 
-        # print("Getting data from " + url)
-        response = requests.get(url)
+                url = "https://www.rightmove.co.uk/property-to-rent/find.html?" \
+                      "locationIdentifier=REGION%5E87490&" \
+                      f"index={index}&" \
+                      "propertyTypes=&" \
+                      "includeLetAgreed=true&" \
+                      "mustHave=&" \
+                      "dontShow=&" \
+                      "furnishTypes=&" \
+                      "keywords="
 
-        soup = BeautifulSoup(response.text, features="html.parser")
+                response = requests.get(url)
 
-        anchors = soup.find_all("a", {"class": "propertyCard-link"})
+                soup = BeautifulSoup(response.text, features="html.parser")
 
-        links.extend(
-            set([a.attrs['href'] for a in anchors])  # Getting the strings with the links
-        )
+                anchors = soup.find_all("a", {"class": "propertyCard-link"})
 
-        time.sleep(0.5)
+                unique_links = set([a.attrs['href'] for a in anchors])
+                database.save_processed_links(
+                    {
+                        'index' : index,
+                        'created_at' : datetime.now(),
+                        'links' : list(unique_links)
+                    }
+                )
+                time.sleep(0.5)
 
-    save_urls(links)
+            except TimeoutError:
+                print("Timeout error, trying again !")
+            finally:
+                break
 
-    return links
+    stored_links = database.get_stored_links()
+    stored_links = set(itertools.chain.from_iterable([ store_obj['links'] for store_obj in stored_links]))
+    return stored_links
 
 
 def get_html_value(element, index) -> str:
@@ -74,7 +95,7 @@ def get_html_value(element, index) -> str:
         return None
 
 
-def convert_station_distance(element):
+def convert_station_distance(element) -> float:
     """
     The string distance has the format ( %f.%f mi ), in order to extract it
     this method is applying the regex method 'findall' and then casting to
@@ -82,7 +103,7 @@ def convert_station_distance(element):
     :param element: The Beautiful Soup object with the small
     :return: A float value with the distance in mi
     """
-    float(
+    return float(
         re.findall(
             "(([-0-9_\.]+)\w+)",
             clean_string(element)
@@ -91,9 +112,12 @@ def convert_station_distance(element):
 
 
 def save_properties_informations(paths: list):
-    database = Database()
 
     for path in tqdm(paths):
+
+        # TODO Develop a mechanism to continue the application even
+        #  with a raised exception
+
         url = "https://www.rightmove.co.uk" + path
 
         response = requests.get(url)
@@ -118,8 +142,13 @@ def save_properties_informations(paths: list):
         # Agent content attributes
         agent_content_div = soup.find("div", {"class": "agent-content"})
 
-        key_features_list = agent_content_div.findChildren("ul")[0].findChildren("li")
-        key_features = [key_feature.text for key_feature in key_features_list]
+        key_features_list = agent_content_div.findChildren("ul")
+
+        if len(key_features_list) > 0:
+            key_features = [key_feature.text for key_feature in key_features_list[0].findChildren("li")]
+        else:
+            key_features = []
+
         description = agent_content_div.find_next("p", {"itemprop": "description"}).text
 
         # Coordinates
@@ -151,7 +180,6 @@ def save_properties_informations(paths: list):
 
         database.insert_property(document)
 
-        time.sleep(0.5)
 
 def scrap():
     print("Getting the urls...")
