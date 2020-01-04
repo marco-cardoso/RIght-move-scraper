@@ -2,6 +2,7 @@ import re
 import time
 from datetime import datetime
 import itertools
+import concurrent.futures as cf
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,6 +11,7 @@ from tqdm import tqdm
 from database import Database
 
 database = Database()
+
 
 def clean_string(text: str) -> str:
     """
@@ -38,8 +40,7 @@ def get_properties_urls() -> list:
     frequency = 24
 
     # Iterating though the main pages
-    # 985
-    for index in tqdm(range(initial_index, 25, frequency)):
+    for index in tqdm(range(initial_index, 985, frequency)):
 
         # It prevents the script to raise the TimeoutError exception from the lack
         # of internet connection
@@ -65,9 +66,9 @@ def get_properties_urls() -> list:
                 unique_links = set([a.attrs['href'] for a in anchors])
                 database.save_processed_links(
                     {
-                        'index' : index,
-                        'created_at' : datetime.now(),
-                        'links' : list(unique_links)
+                        'index': index,
+                        'created_at': datetime.now(),
+                        'links': list(unique_links)
                     }
                 )
                 time.sleep(0.5)
@@ -78,7 +79,7 @@ def get_properties_urls() -> list:
                 break
 
     stored_links = database.get_stored_links()
-    stored_links = set(itertools.chain.from_iterable([ store_obj['links'] for store_obj in stored_links]))
+    stored_links = set(itertools.chain.from_iterable([store_obj['links'] for store_obj in stored_links]))
     return stored_links
 
 
@@ -97,9 +98,9 @@ def get_html_value(element, index) -> str:
 
 def convert_station_distance(element) -> float:
     """
-    The string distance has the format ( %f.%f mi ), in order to extract it
-    this method is applying the regex method 'findall' and then casting to
-    float value
+    The string distance has the format ( %f.%f mi ), in order to extract
+    only the numerical value this method is applying the regex method
+    'findall' and then casting to float value
     :param element: The Beautiful Soup object with the small
     :return: A float value with the distance in mi
     """
@@ -111,74 +112,82 @@ def convert_station_distance(element) -> float:
     )
 
 
-def save_properties_informations(paths: list):
+def get_property_information(path: str):
+    url = "https://www.rightmove.co.uk" + path
+    print("Getting the data from " + url + " ...")
 
-    for path in tqdm(paths):
+    response = requests.get(url)
 
-        # TODO Develop a mechanism to continue the application even
-        #  with a raised exception
+    soup = BeautifulSoup(response.text, features="html.parser")
 
-        url = "https://www.rightmove.co.uk" + path
+    ##### Attributes ####
 
-        response = requests.get(url)
+    # Header attributes
+    property_rent_and_price_div = soup.find("div", {"class": "property-header-bedroom-and-price"})
 
-        soup = BeautifulSoup(response.text, features="html.parser")
+    title = clean_string(property_rent_and_price_div.findChildren("h1")[0].text)
+    address = clean_string(property_rent_and_price_div.findChildren("address")[0].text)
+    price = clean_string(soup.find("p", {"id": "propertyHeaderPrice"}).findChildren("strong")[0].text)
 
-        ##### Attributes ####
+    # Letting section attributes / Optional attributes
+    letting_div = soup.find("div", {"id": "lettingInformation"})
+    letting_table_rows = letting_div.find_next("tbody").find_all_next("tr")
 
-        # Header attributes
-        property_rent_and_price_div = soup.find("div", {"class": "property-header-bedroom-and-price"})
+    letting_info = {get_html_value(row, 0): get_html_value(row, 1) for row in letting_table_rows}
 
-        title = clean_string(property_rent_and_price_div.findChildren("h1")[0].text)
-        address = clean_string(property_rent_and_price_div.findChildren("address")[0].text)
-        price = clean_string(soup.find("p", {"id": "propertyHeaderPrice"}).findChildren("strong")[0].text)
+    # Agent content attributes
+    agent_content_div = soup.find("div", {"class": "agent-content"})
 
-        # Letting section attributes / Optional attributes
-        letting_div = soup.find("div", {"id": "lettingInformation"})
-        letting_table_rows = letting_div.find_next("tbody").find_all_next("tr")
+    key_features_list = agent_content_div.findChildren("ul")
 
-        letting_info = {get_html_value(row, 0): get_html_value(row, 1) for row in letting_table_rows}
+    if len(key_features_list) > 0:
+        key_features = [key_feature.text for key_feature in key_features_list[0].findChildren("li")]
+    else:
+        key_features = []
 
-        # Agent content attributes
-        agent_content_div = soup.find("div", {"class": "agent-content"})
+    description = agent_content_div.find_next("p", {"itemprop": "description"}).text
 
-        key_features_list = agent_content_div.findChildren("ul")
+    # Coordinates
+    location_image_url = soup.find("a", {"class": "js-ga-minimap"}).findChildren("img")[0].attrs['src']
+    latitude = re.findall("latitude=([-0-9_\.]+)\w+", location_image_url)[0]
+    longitude = re.findall("longitude=([-0-9_\.]+)\w+", location_image_url)[0]
 
-        if len(key_features_list) > 0:
-            key_features = [key_feature.text for key_feature in key_features_list[0].findChildren("li")]
-        else:
-            key_features = []
-
-        description = agent_content_div.find_next("p", {"itemprop": "description"}).text
-
-        # Coordinates
-        location_image_url = soup.find("a", {"class": "js-ga-minimap"}).findChildren("img")[0].attrs['src']
-        latitude = re.findall("latitude=([-0-9_\.]+)\w+", location_image_url)[0]
-        longitude = re.findall("longitude=([-0-9_\.]+)\w+", location_image_url)[0]
-
-        stations_li = soup.find("ul", {"class": "stations-list"}).findChildren("li")
-        stations = [
-            {
-                'name': clean_string(station_li.findChildren("span")[0].text),
-                'distance': convert_station_distance(station_li.findChildren("small")[0].text)
-            }
-            for station_li in stations_li
-        ]
-
-        document = {
-            'title': title,
-            'address': address,
-            'price': price,
-            'letting': letting_info,
-            'key_features': key_features,
-            'description': description,
-            'latitude': latitude,
-            'longitude': longitude,
-            'stations': stations,
-            "amt_stations" : len(stations)
+    stations_li = soup.find("ul", {"class": "stations-list"}).findChildren("li")
+    stations = [
+        {
+            'name': clean_string(station_li.findChildren("span")[0].text),
+            'distance': convert_station_distance(station_li.findChildren("small")[0].text)
         }
+        for station_li in stations_li
+    ]
 
-        database.insert_property(document)
+    document = {
+        'title': title,
+        'address': address,
+        'price': price,
+        'letting': letting_info,
+        'key_features': key_features,
+        'description': description,
+        'latitude': latitude,
+        'longitude': longitude,
+        'stations': stations,
+        "amt_stations": len(stations)
+    }
+
+    database.insert_property(document)
+    print("Getting the data from " + url + " ...DONE")
+
+
+def save_properties_informations(paths: list):
+    with cf.ThreadPoolExecutor(max_workers=50) as executor:
+        results = executor.map(get_property_information, paths)
+
+        outputs = []
+        try:
+            for i in results:
+                outputs.append(i)
+        except cf._base.TimeoutError:
+            print("TIMEOUT")
 
 
 def scrap():
