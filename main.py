@@ -47,31 +47,30 @@ def get_properties_urls(districts : list) -> list:
     :return: A list with all the obtained properties urls
     """
 
-    # For security reasons, after each main page iteration the results are saved in DB.
-    # If something happens this instruction is going to get the last processed index.
-    last_processed_element = database.get_last_processed_index()
-
-    initial_index = last_processed_element[0]['index'] + 24 if len(last_processed_element) > 0 else 0
-
     # The website has setted this value as default
     frequency = 24
+    
+    initial_index = frequency
+    for district in districts:
+        print("Getting the urls of " + district)
+        # Iterating though the main pages
+        for index in range(initial_index, 10**3, frequency):
 
-    # Iterating though the main pages
-    for index in range(initial_index, 985, frequency):
+            # It prevents the script to raise the TimeoutError exception from the lack
+            # of internet connection
+            while True:
+                try:
 
-        # It prevents the script to raise the TimeoutError exception from the lack
-        # of internet connection
-        while True:
-            try:
+                    links = requests.get_district_links(district)
+                    if len(links) == 0: # No more links remaining
+                        break
 
-                get_district_links(district)
-
-            except TimeoutError:
-                print("Timeout error, trying again !")
-            finally:
-                break
+                except TimeoutError:
+                    print("Timeout error, trying again !")
 
     stored_links = database.get_stored_links()
+    
+    # It gets a set from a list of dictionaries attribute
     stored_links = set(itertools.chain.from_iterable([store_obj['links'] for store_obj in stored_links]))
     return stored_links
 
@@ -90,6 +89,7 @@ def save_properties_informations(paths: list):
 
 def scrap():
     
+    print("Getting the district codes...")
     districts = get_district_codes()
     
     print("Getting the urls...")

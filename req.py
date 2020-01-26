@@ -23,8 +23,6 @@ class Requests():
         splitted = [ district[i:i+2] +"/"  for i in range(0, len(district), 2) ]
         final_url = self.dst_code_url + str().join(splitted)
 
-        print("Requesting data from " + final_url)
-
         response = requests.get(final_url).json()['typeAheadLocations']
 
         location_identifier = next(filter(
@@ -124,12 +122,16 @@ class Requests():
         soup = BeautifulSoup(response.text, features="html.parser")
 
         anchors = soup.find_all("a", {"class": "propertyCard-link"})
-
         unique_links = set([a.attrs['href'] for a in anchors])
-        database.save_processed_links(
-            {
-                'index': index,
-                'created_at': datetime.now(),
-                'links': list(unique_links)
-            }
-        )
+        
+        if len(unique_links) > 0:
+            
+            database.save_processed_links(
+                {
+                    'index': index,
+                    'created_at': datetime.now(),
+                    'links': list(unique_links)
+                }
+            )
+        
+        return unique_links
