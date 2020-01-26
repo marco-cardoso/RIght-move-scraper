@@ -88,6 +88,7 @@ class Requests():
         ]
 
         document = {
+            'url' : url,
             'title': title,
             'address': address,
             'price': price,
