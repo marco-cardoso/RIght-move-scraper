@@ -5,6 +5,7 @@ import itertools
 import concurrent.futures as cf
 
 import requests
+import numpy as np
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
@@ -21,12 +22,64 @@ def clean_string(text: str) -> str:
     """
     return ' '.join(text.split())
 
+def get_district_code(district : str) -> dict:
+    url = "https://www.rightmove.co.uk/typeAhead/uknostreet/"
+    
+    district = district.upper().replace(" ","")
+    splitted = [ district[i:i+2] +"/"  for i in range(0, len(district), 2) ]
+    final_url = url + str().join(splitted)
 
-def get_properties_urls() -> list:
+    print("Requesting data from " + final_url)
+
+    response = requests.get(final_url).json()['typeAheadLocations']
+
+    location_identifier = next(filter(
+        lambda dictionary : 
+        dictionary['normalisedSearchTerm'].endswith("BOROUGH")
+        or
+        dictionary['normalisedSearchTerm'].endswith("CITY OF"),
+        response
+    ))
+        
+    database.insert_district(location_identifier)
+
+   
+    
+def get_district_codes():
+    
+    outputs = database.get_districts()
+    if len(outputs) == 0:
+        districts = np.genfromtxt("district_names.csv", delimiter=",", dtype=str, usecols=[1])
+        with cf.ThreadPoolExecutor(max_workers=50) as executor:
+            results = executor.map(get_district_code, districts)
+
+            outputs = []
+            try:
+                for i in results:
+                    outputs.append(i)
+            except cf._base.TimeoutError:
+                print("TIMEOUT")
+
+        # We need to add tower_hamlets manually since we're not separating the 
+        # district names by syllables
+        tower_hamlets = {
+            "displayName":"Tower Hamlets (London Borough)",
+            "locationIdentifier":"REGION^61417",
+            "normalisedSearchTerm":"TOWER HAMLETS LONDON BOROUGH"
+        }
+
+        outputs.append(tower_hamlets)
+        database.insert_district(tower_hamlets)
+        
+    return outputs
+
+
+def get_properties_urls(districts : list) -> list:
     """
     Since there's no way to get the attributes of the properties directly trough a JSON document,
     It's necessary to iterate over the main pages and save all of the HTML anchor hrefs to
     process then later
+    :param districts: List with districts represented by dictionaries
     :return: A list with all the obtained properties urls
     """
 
@@ -191,8 +244,11 @@ def save_properties_informations(paths: list):
 
 
 def scrap():
+    
+    districts = get_district_codes()
+    
     print("Getting the urls...")
-    properties_links = get_properties_urls()
+    properties_links = get_properties_urls(districts)
 
     print("Getting the properties details...")
     save_properties_informations(properties_links)
