@@ -13,6 +13,8 @@ class Database():
         self.properties = database['properties']
         self.links = database['links']
         self.districts = database['districts']
+        self.errors = database["errors"]
+        
 
     def insert_property(self, property : dict):
         self.properties.insert(property)
@@ -20,6 +22,11 @@ class Database():
     def insert_district(self, district : dict):
         self.districts.insert(district)
 
+    def save_error(self, link : str):
+        self.errors.insert({
+            'link' : link
+        })
+        
     def save_processed_links(self, links : dict):
         self.links.insert(links)
 
@@ -30,4 +37,4 @@ class Database():
         return list(self.links.find({}).sort([("index", DESCENDING)]).limit(1))
     
     def get_districts(self) -> list:
-        return list(self.districts.find({}, {'name' : 1, 'code' : 1, '_id' : 0}))
+        return list(self.districts.find({}))
