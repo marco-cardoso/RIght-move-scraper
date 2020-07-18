@@ -1,12 +1,24 @@
-from configs import database_host, database_name, database_port
+import os
 
-from pymongo import MongoClient, DESCENDING
+from pymongo import MongoClient
 
-class Database():
 
-    def __init__(self) -> None:
+class Database:
+    DEFAULT_PROPS_PROJ = {
+        'title': 1,
+        'price': 1,
+        'stations': 1,
+        'district': 1,
+        'latitude': 1,
+        'longitude': 1
+    }
 
-        self.client = MongoClient(database_host, database_port)
+    def __init__(self, database_name: str) -> None:
+        """
+        Database constructor
+        :param database_name: A string with the database_name
+        """
+        self.client = MongoClient(os.environ.get('MONGO_HOST'), int( os.environ.get('MONGO_PORT')))
 
         database = self.client[database_name]
 
@@ -14,27 +26,27 @@ class Database():
         self.links = database['links']
         self.districts = database['districts']
         self.errors = database["errors"]
-        
 
-    def insert_property(self, property : dict):
+    def insert_property(self, property: dict):
         self.properties.insert(property)
-        
-    def insert_district(self, district : dict):
+
+    def save_error(self, link: str):
+        self.errors.insert({
+            'link': link
+        })
+
+    def insert_district(self, district: dict):
         self.districts.insert(district)
 
-    def save_error(self, link : str):
-        self.errors.insert({
-            'link' : link
-        })
-        
-    def save_processed_links(self, links : dict):
-        self.links.insert(links)
+    def remove_districts(self):
+        self.districts.remove({})
 
-    def get_stored_links(self) -> list:
-        return list(self.links.find({}, {"links" : 1}))
+    def get_properties(self, default_projection=DEFAULT_PROPS_PROJ):
+        return list(self.properties.find({}, default_projection))
 
-    def get_last_processed_index(self) -> list:
-        return list(self.links.find({}).sort([("index", DESCENDING)]).limit(1))
-    
-    def get_districts(self) -> list:
-        return list(self.districts.find({}))
+    def insert_properties(self, properties: list):
+        """
+        List of dictionaries representing the properties
+        :param properties: List of dictionaries representing the properties
+        """
+        self.properties.insert_many(properties)
